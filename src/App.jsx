@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { mockCustomers } from './mockData';
+import { sheetLeads } from './sheetData';
 import './App.css';
 
 // Initial CS Action items checklist for mock data
@@ -27,14 +28,18 @@ function App() {
   const [healthFilter, setHealthFilter] = useState('All');
   const [activeTab, setActiveTab] = useState('summary');
   
-  // Feature Enhancement 1: Interactive Checklist State
+  // View mode state: 'customer' (Task 2) or 'sheet' (Task 3 preview)
+  const [viewMode, setViewMode] = useState('customer');
+  const [excelTab, setExcelTab] = useState('dash'); // 'dash' or 'leads'
+
+  // Interactive Checklist State
   const [checklists, setChecklists] = useState(() => {
     const saved = localStorage.getItem('cs_checklists');
     return saved ? JSON.parse(saved) : defaultChecklists;
   });
 
-  // Feature Enhancement 2: Timeline feed filter state
-  const [feedFilter, setFeedFilter] = useState('all'); // 'all', 'email', 'slack', 'ticket'
+  // Timeline feed filter state
+  const [feedFilter, setFeedFilter] = useState('all');
 
   // Settings / API Key State
   const [showSettings, setShowSettings] = useState(false);
@@ -311,6 +316,17 @@ Answer the user's question about this customer. Be concise, direct, professional
     return true;
   });
 
+  // Calculate static metrics for Task 3 spreadsheet preview
+  const totalLeads = sheetLeads.length;
+  const closedWonLeads = sheetLeads.filter(l => l.stage === 'Closed Won');
+  const totalWonRevenue = closedWonLeads.reduce((sum, l) => sum + l.value, 0);
+  const winRate = ((closedWonLeads.length / totalLeads) * 100).toFixed(1);
+  const activePipelineValue = sheetLeads
+    .filter(l => l.stage !== 'Closed Won' && l.stage !== 'Closed Lost')
+    .reduce((sum, l) => sum + l.value, 0);
+  const staleHighPriorityLeadsCount = sheetLeads
+    .filter(l => l.priority === 'High' && l.stage !== 'Closed Won' && l.stage !== 'Closed Lost' && l.staleDays !== '-' && l.staleDays >= 10).length;
+
   return (
     <div className="app-container">
       {/* Sidebar Panel */}
@@ -327,6 +343,7 @@ Answer the user's question about this customer. Be concise, direct, professional
             className="search-input"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            disabled={viewMode === 'sheet'}
           />
           <div className="filter-pills">
             {['All', 'Good', 'Neutral', 'At Risk'].map((status) => (
@@ -334,6 +351,7 @@ Answer the user's question about this customer. Be concise, direct, professional
                 key={status}
                 onClick={() => setHealthFilter(status)}
                 className={`filter-pill ${healthFilter === status ? 'active' : ''}`}
+                disabled={viewMode === 'sheet'}
               >
                 {status}
               </button>
@@ -349,12 +367,13 @@ Answer the user's question about this customer. Be concise, direct, professional
           ) : (
             filteredCustomers.map((customer) => {
               const statusClass = customer.healthStatus.toLowerCase().replace(' ', '-');
-              const isActive = customer.id === selectedCustomerId;
+              const isActive = customer.id === selectedCustomerId && viewMode === 'customer';
               return (
                 <div 
                   key={customer.id} 
                   className={`customer-card ${isActive ? 'active' : ''}`}
                   onClick={() => {
+                    setViewMode('customer');
                     setSelectedCustomerId(customer.id);
                     setActiveTab('summary');
                     setFeedFilter('all');
@@ -377,11 +396,24 @@ Answer the user's question about this customer. Be concise, direct, professional
           )}
         </div>
 
+        {/* Task 3 Spreadsheet View Sidebar Entry */}
+        <div className="system-view-header">System Views</div>
+        <div 
+          className={`system-view-card ${viewMode === 'sheet' ? 'active' : ''}`}
+          onClick={() => setViewMode('sheet')}
+        >
+          <div className="excel-icon-box">📊</div>
+          <div className="customer-card-info">
+            <div className="customer-card-name" style={{ fontWeight: '700' }}>Sales Pipeline Excel</div>
+            <div className="customer-card-sub">Task 3 Dashboard</div>
+          </div>
+        </div>
+
         <div className="sidebar-footer">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>
             ⚙️ AI Settings
           </button>
-          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>v1.1.0</span>
+          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>v1.2.0</span>
         </div>
       </aside>
 
@@ -389,8 +421,14 @@ Answer the user's question about this customer. Be concise, direct, professional
       <main className="main-dashboard">
         <header className="dashboard-header">
           <div className="dashboard-title-area">
-            <h2 className="text-gradient">Unified Customer Context</h2>
-            <p>Consolidated analysis from Zoho CRM, Slack, Support Tickets, and Platform Usage</p>
+            <h2 className="text-gradient">
+              {viewMode === 'customer' ? 'Unified Customer Context' : 'Sales Lead Pipeline Spreadsheet'}
+            </h2>
+            <p>
+              {viewMode === 'customer' 
+                ? 'Consolidated analysis from Zoho CRM, Slack, Support Tickets, and Platform Usage' 
+                : 'Interactive web preview of the Task 3 spreadsheet dashboard deliverable'}
+            </p>
           </div>
           
           <div className="api-status">
@@ -406,463 +444,808 @@ Answer the user's question about this customer. Be concise, direct, professional
           </div>
         </header>
 
-        {/* Aggregate Stats Bar */}
-        <section className="stats-grid">
-          <div className="stat-card glass-panel">
-            <div className="stat-icon-box blue">💼</div>
-            <div className="stat-info">
-              <span className="stat-value">${totalValue.toLocaleString()}</span>
-              <span className="stat-label">Total Contract Value (ARR)</span>
-            </div>
-          </div>
-          
-          <div className="stat-card glass-panel">
-            <div className="stat-icon-box red">⚠️</div>
-            <div className="stat-info">
-              <span className="stat-value">{riskCount}</span>
-              <span className="stat-label">Accounts At Churn Risk</span>
-            </div>
-          </div>
-          
-          <div className="stat-card glass-panel">
-            <div className="stat-icon-box green">🚀</div>
-            <div className="stat-info">
-              <span className="stat-value">{expansionCount}</span>
-              <span className="stat-label">Expansion Opportunities</span>
-            </div>
-          </div>
-
-          <div className="stat-card glass-panel">
-            <div className="stat-icon-box cyan">📈</div>
-            <div className="stat-info">
-              <span className="stat-value">{avgHealth}%</span>
-              <span className="stat-label">Average Health Index</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Tabs Bar */}
-        <div className="tabs-container">
-          <button 
-            className={`tab-btn ${activeTab === 'summary' ? 'active' : ''}`}
-            onClick={() => setActiveTab('summary')}
-          >
-            ✨ AI Summary & Action
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'crm' ? 'active' : ''}`}
-            onClick={() => setActiveTab('crm')}
-          >
-            📋 Zoho CRM Profile
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'timeline' ? 'active' : ''}`}
-            onClick={() => setActiveTab('timeline')}
-          >
-            ⚡ Integration Activity Feed ({filteredTimelineItems.length})
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'usage' ? 'active' : ''}`}
-            onClick={() => setActiveTab('usage')}
-          >
-            📊 Product Usage
-          </button>
-          <button 
-            className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
-            onClick={() => setActiveTab('chat')}
-          >
-            💬 Chat with Account Logs
-          </button>
-        </div>
-
-        {/* Tab Detail Contents */}
-        <div className="tab-content-panel">
-          {activeTab === 'summary' && (
-            <div className="summary-grid">
-              <div className="summary-main-col">
-                {/* AI Executive Summary */}
-                <div className="glass-panel ai-box">
-                  <h3 className="card-title" style={{ color: '#a5b4fc' }}>🤖 AI Executive Context Summary</h3>
-                  <p className="ai-summary-text">{selectedCustomer.aiSummary}</p>
+        {viewMode === 'customer' ? (
+          // TASK 2 MAIN PANELS
+          <>
+            {/* Aggregate Stats Bar */}
+            <section className="stats-grid">
+              <div className="stat-card glass-panel">
+                <div className="stat-icon-box blue">💼</div>
+                <div className="stat-info">
+                  <span className="stat-value">${totalValue.toLocaleString()}</span>
+                  <span className="stat-label">Total Contract Value (ARR)</span>
                 </div>
+              </div>
+              
+              <div className="stat-card glass-panel">
+                <div className="stat-icon-box red">⚠️</div>
+                <div className="stat-info">
+                  <span className="stat-value">{riskCount}</span>
+                  <span className="stat-label">Accounts At Churn Risk</span>
+                </div>
+              </div>
+              
+              <div className="stat-card glass-panel">
+                <div className="stat-icon-box green">🚀</div>
+                <div className="stat-info">
+                  <span className="stat-value">{expansionCount}</span>
+                  <span className="stat-label">Expansion Opportunities</span>
+                </div>
+              </div>
 
-                {/* Signals & Alerts Grid */}
-                <div className="signals-grid">
-                  <div className="glass-panel signal-col">
-                    <h3 className="card-title" style={{ color: '#fda4af' }}>🔴 Risk Signals</h3>
-                    <ul className="signal-list">
-                      {selectedCustomer.aiAnalysis.risks.map((risk, index) => (
-                        <li key={index} className="signal-item risk">
-                          <span className="signal-dot"></span>
-                          <span>{risk}</span>
-                        </li>
-                      ))}
-                    </ul>
+              <div className="stat-card glass-panel">
+                <div className="stat-icon-box cyan">📈</div>
+                <div className="stat-info">
+                  <span className="stat-value">{avgHealth}%</span>
+                  <span className="stat-label">Average Health Index</span>
+                </div>
+              </div>
+            </section>
+
+            {/* Tabs Bar */}
+            <div className="tabs-container">
+              <button 
+                className={`tab-btn ${activeTab === 'summary' ? 'active' : ''}`}
+                onClick={() => setActiveTab('summary')}
+              >
+                ✨ AI Summary & Action
+              </button>
+              <button 
+                className={`tab-btn ${activeTab === 'crm' ? 'active' : ''}`}
+                onClick={() => setActiveTab('crm')}
+              >
+                📋 Zoho CRM Profile
+              </button>
+              <button 
+                className={`tab-btn ${activeTab === 'timeline' ? 'active' : ''}`}
+                onClick={() => setActiveTab('timeline')}
+              >
+                ⚡ Integration Activity Feed ({filteredTimelineItems.length})
+              </button>
+              <button 
+                className={`tab-btn ${activeTab === 'usage' ? 'active' : ''}`}
+                onClick={() => setActiveTab('usage')}
+              >
+                📊 Product Usage
+              </button>
+              <button 
+                className={`tab-btn ${activeTab === 'chat' ? 'active' : ''}`}
+                onClick={() => setActiveTab('chat')}
+              >
+                💬 Chat with Account Logs
+              </button>
+            </div>
+
+            {/* Tab Detail Contents */}
+            <div className="tab-content-panel">
+              {activeTab === 'summary' && (
+                <div className="summary-grid">
+                  <div className="summary-main-col">
+                    <div className="glass-panel ai-box">
+                      <h3 className="card-title" style={{ color: '#a5b4fc' }}>🤖 AI Executive Context Summary</h3>
+                      <p className="ai-summary-text">{selectedCustomer.aiSummary}</p>
+                    </div>
+
+                    <div className="signals-grid">
+                      <div className="glass-panel signal-col">
+                        <h3 className="card-title" style={{ color: '#fda4af' }}>🔴 Risk Signals</h3>
+                        <ul className="signal-list">
+                          {selectedCustomer.aiAnalysis.risks.map((risk, index) => (
+                            <li key={index} className="signal-item risk">
+                              <span className="signal-dot"></span>
+                              <span>{risk}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      
+                      <div className="glass-panel signal-col">
+                        <h3 className="card-title" style={{ color: '#6ee7b7' }}>🟢 Expansion Opportunities</h3>
+                        <ul className="signal-list">
+                          {selectedCustomer.aiAnalysis.opportunities.map((opp, index) => (
+                            <li key={index} className="signal-item opportunity">
+                              <span className="signal-dot"></span>
+                              <span>{opp}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <div className="glass-panel action-box">
+                      <h3 className="card-title" style={{ color: '#86efac' }}>🎯 Recommended Next Best Action Checklist</h3>
+                      <p className="action-content" style={{ fontWeight: '600', marginBottom: '8px' }}>
+                        {selectedCustomer.aiAnalysis.nextBestAction}
+                      </p>
+                      
+                      <div className="action-checklist">
+                        {(checklists[selectedCustomerId] || []).map((item) => (
+                          <label 
+                            key={item.id} 
+                            className={`action-checkbox-item ${item.done ? 'checked' : ''}`}
+                          >
+                            <input 
+                              type="checkbox" 
+                              checked={item.done}
+                              onChange={() => handleToggleChecklist(selectedCustomerId, item.id)}
+                            />
+                            <span>{item.text}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                   </div>
-                  
-                  <div className="glass-panel signal-col">
-                    <h3 className="card-title" style={{ color: '#6ee7b7' }}>🟢 Expansion Opportunities</h3>
-                    <ul className="signal-list">
-                      {selectedCustomer.aiAnalysis.opportunities.map((opp, index) => (
-                        <li key={index} className="signal-item opportunity">
-                          <span className="signal-dot"></span>
-                          <span>{opp}</span>
-                        </li>
-                      ))}
-                    </ul>
+
+                  <div className="summary-side-col">
+                    <div className="glass-panel info-card">
+                      <h3 className="card-title">Account Details</h3>
+                      <div className="info-grid">
+                        <div className="info-row">
+                          <span className="info-label">Account Owner</span>
+                          <span className="info-val">{selectedCustomer.accountOwner}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="info-label">Annual Value (ARR)</span>
+                          <span className="info-val" style={{ color: '#86efac' }}>${selectedCustomer.contractValue.toLocaleString()}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="info-label">Renewal Date</span>
+                          <span className="info-val">{selectedCustomer.renewalDate}</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="info-label">Health Score</span>
+                          <span className={`info-val`} style={{ 
+                            color: selectedCustomer.healthScore >= 80 ? 'var(--status-good)' : 
+                                   selectedCustomer.healthScore >= 60 ? 'var(--status-neutral)' : 'var(--status-risk)'
+                          }}>{selectedCustomer.healthScore} / 100</span>
+                        </div>
+                        <div className="info-row">
+                          <span className="info-label">Region</span>
+                          <span className="info-val">{selectedCustomer.region}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-panel info-card">
+                      <h3 className="card-title" style={{ color: '#06b6d4' }}>🗣️ Account Sentiment Trend</h3>
+                      <div style={{ marginTop: '10px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Trend Index:</span>
+                          <strong style={{ color: sentimentData.color }}>{sentimentData.label}</strong>
+                        </div>
+                        
+                        <div className="sentiment-meter">
+                          <span>😢</span>
+                          <div className="sentiment-bar-bg">
+                            <div 
+                              className="sentiment-bar-fill" 
+                              style={{ 
+                                width: `${sentimentData.score}%`, 
+                                backgroundColor: sentimentData.color 
+                              }}
+                            ></div>
+                          </div>
+                          <span>😊</span>
+                        </div>
+
+                        <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: '1.4' }}>
+                          {sentimentData.details}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {/* Recommended Action & Checklist (Interactive Checklist) */}
-                <div className="glass-panel action-box">
-                  <h3 className="card-title" style={{ color: '#86efac' }}>🎯 Recommended Next Best Action Checklist</h3>
-                  <p className="action-content" style={{ fontWeight: '600', marginBottom: '8px' }}>
-                    {selectedCustomer.aiAnalysis.nextBestAction}
-                  </p>
-                  
-                  {/* Interactive CS Tasks Checklist */}
-                  <div className="action-checklist">
-                    {(checklists[selectedCustomerId] || []).map((item) => (
-                      <label 
-                        key={item.id} 
-                        className={`action-checkbox-item ${item.done ? 'checked' : ''}`}
+              {activeTab === 'crm' && (
+                <div className="crm-details-panel">
+                  <div className="glass-panel info-card">
+                    <h3 className="card-title" style={{ borderBottom: '1px solid var(--card-border)', paddingBottom: '10px' }}>CRM Company Information</h3>
+                    <div className="info-grid" style={{ marginTop: '16px' }}>
+                      <div className="info-row">
+                        <span className="info-label">Legal Entity</span>
+                        <span className="info-val">{selectedCustomer.name}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-label">Domain</span>
+                        <span className="info-val">{selectedCustomer.domain}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-label">Company Size</span>
+                        <span className="info-val">{selectedCustomer.crmData.companySize}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-label">Industry</span>
+                        <span className="info-val">{selectedCustomer.industry}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="glass-panel info-card">
+                    <h3 className="card-title" style={{ borderBottom: '1px solid var(--card-border)', paddingBottom: '10px' }}>Contract Details</h3>
+                    <div className="info-grid" style={{ marginTop: '16px' }}>
+                      <div className="info-row">
+                        <span className="info-label">Deal Stage</span>
+                        <span className="info-val" style={{ color: 'var(--status-good)' }}>{selectedCustomer.crmData.dealStage}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-label">Win Date</span>
+                        <span className="info-val">{selectedCustomer.crmData.winDate}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-label">Primary Billing Contact</span>
+                        <span className="info-val" style={{ color: '#22d3ee' }}>{selectedCustomer.crmData.billingContact}</span>
+                      </div>
+                      <div className="info-row">
+                        <span className="info-label">CRM Sales Notes</span>
+                        <span className="info-val" style={{ fontWeight: '400', fontSize: '0.8rem', textAlign: 'right', maxWidth: '60%' }}>
+                          {selectedCustomer.crmData.notes}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'timeline' && (
+                <div>
+                  <div className="feed-filter-row">
+                    <button 
+                      className={`feed-filter-btn ${feedFilter === 'all' ? 'active' : ''}`}
+                      onClick={() => setFeedFilter('all')}
+                    >
+                      ⚡ All Channels ({rawTimelineItems.length})
+                    </button>
+                    <button 
+                      className={`feed-filter-btn ${feedFilter === 'email' ? 'active' : ''}`}
+                      onClick={() => setFeedFilter('email')}
+                    >
+                      ✉️ Emails Only ({rawTimelineItems.filter(i => i.feedType === 'email').length})
+                    </button>
+                    <button 
+                      className={`feed-filter-btn ${feedFilter === 'slack' ? 'active' : ''}`}
+                      onClick={() => setFeedFilter('slack')}
+                    >
+                      💬 Slack Only ({rawTimelineItems.filter(i => i.feedType === 'slack').length})
+                    </button>
+                    <button 
+                      className={`feed-filter-btn ${feedFilter === 'ticket' ? 'active' : ''}`}
+                      onClick={() => setFeedFilter('ticket')}
+                    >
+                      🎫 Tickets Only ({rawTimelineItems.filter(i => i.feedType === 'ticket').length})
+                    </button>
+                  </div>
+
+                  {filteredTimelineItems.length === 0 ? (
+                    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                      No interactions match selected channel filter
+                    </div>
+                  ) : (
+                    <div className="timeline-feed">
+                      {filteredTimelineItems.map((item, idx) => {
+                        if (item.feedType === 'ticket') {
+                          return (
+                            <div key={`ticket-${item.id}-${idx}`} className="timeline-item">
+                              <div className="timeline-marker ticket"></div>
+                              <div className="glass-panel timeline-card">
+                                <div className="timeline-card-header">
+                                  <span className="timeline-source ticket">🎫 Ticket {item.id} - {item.category}</span>
+                                  <span className="timeline-date">{item.date}</span>
+                                </div>
+                                <div className="timeline-subject">
+                                  {item.title} (Priority: <span style={{ color: item.priority === 'High' ? '#ef4444' : '#f59e0b' }}>{item.priority}</span>)
+                                </div>
+                                <div className="timeline-body">{item.description}</div>
+                                <div style={{ marginTop: '10px', fontSize: '0.75rem', display: 'flex', gap: '15px' }}>
+                                  <span style={{ color: item.status === 'Open' ? '#fda4af' : '#6ee7b7' }}>● Status: {item.status}</span>
+                                  <span style={{ color: 'var(--text-secondary)' }}>Sentiment: {item.sentiment}</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div key={`msg-${item.id}-${idx}`} className="timeline-item">
+                              <div className={`timeline-marker ${item.feedType}`}></div>
+                              <div className="glass-panel timeline-card">
+                                <div className="timeline-card-header">
+                                  <span className={`timeline-source ${item.feedType}`}>
+                                    {item.feedType === 'email' ? '✉️ Email' : '💬 Slack Thread'}
+                                  </span>
+                                  <span className="timeline-date">
+                                    {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </span>
+                                </div>
+                                {item.subject && <div className="timeline-subject">{item.subject}</div>}
+                                <div className="timeline-sender">From: <strong>{item.sender}</strong></div>
+                                <div className="timeline-body">"{item.body}"</div>
+                                <div style={{ marginTop: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                  Sentiment: {item.sentiment || 'Neutral'}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {activeTab === 'usage' && (
+                <div className="usage-grid">
+                  <div className="glass-panel usage-metric-card">
+                    <h3 className="card-title">Weekly Active Users (Last 4 Weeks)</h3>
+                    <div className="usage-bars">
+                      {selectedCustomer.productUsage.weeklyActiveUsers.map((users, idx) => {
+                        const max = Math.max(...selectedCustomer.productUsage.weeklyActiveUsers, 10);
+                        const heightPercent = (users / max) * 100;
+                        return (
+                          <div key={idx} className="usage-bar-wrapper">
+                            <span style={{ fontSize: '0.75rem', fontWeight: '600' }}>{users}</span>
+                            <div className="usage-bar" style={{ height: `${heightPercent}%` }}></div>
+                            <span className="usage-bar-label">Wk {4 - idx}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="glass-panel usage-metric-card">
+                    <h3 className="card-title">Contract License Utilization</h3>
+                    <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
+                          <span>Seats Assigned</span>
+                          <strong>{selectedCustomer.productUsage.licenseSeatsUsed} / {selectedCustomer.productUsage.licenseSeatsTotal}</strong>
+                        </div>
+                        <div style={{ width: '100%', height: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', overflow: 'hidden' }}>
+                          <div style={{ 
+                            width: `${selectedCustomer.productUsage.licenseUtilization}%`, 
+                            height: '100%', 
+                            background: selectedCustomer.productUsage.licenseUtilization >= 90 ? 'var(--status-risk)' : 
+                                        selectedCustomer.productUsage.licenseUtilization >= 70 ? 'var(--status-good)' : 'var(--accent-primary)',
+                            borderRadius: '6px'
+                          }}></div>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                          <span>Utilization Rate</span>
+                          <span>{selectedCustomer.productUsage.licenseUtilization}%</span>
+                        </div>
+                      </div>
+
+                      <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '16px' }}>
+                        <h4 style={{ fontSize: '0.85rem', fontWeight: '600', marginBottom: '10px' }}>Active Modules</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
+                            <span>{selectedCustomer.productUsage.modulesActive.corporateCards ? '🟢' : '⚫'}</span>
+                            <span>Corporate Cards</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
+                            <span>{selectedCustomer.productUsage.modulesActive.billPay ? '🟢' : '⚫'}</span>
+                            <span>Bill Pay</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
+                            <span>{selectedCustomer.productUsage.modulesActive.reimbursements ? '🟢' : '⚫'}</span>
+                            <span>Reimbursements</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
+                            <span>{selectedCustomer.productUsage.modulesActive.erpSync ? '🟢' : '⚫'}</span>
+                            <span>ERP Sync (NetSuite)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {activeTab === 'chat' && (
+                <div className="chat-container">
+                  <div className="chat-history">
+                    {(customerChats[selectedCustomerId] || []).map((msg, idx) => (
+                      <div key={idx} className={`chat-message ${msg.sender}`}>
+                        <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+                      </div>
+                    ))}
+                    
+                    {isTyping && (
+                      <div className="chat-message assistant">
+                        <div className="typing-indicator">
+                          <div className="typing-dot"></div>
+                          <div className="typing-dot"></div>
+                          <div className="typing-dot"></div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  <div className="chat-quick-questions">
+                    {getQuickQuestions().map((q, idx) => (
+                      <button 
+                        key={idx} 
+                        className="quick-question-pill"
+                        onClick={() => handleQuickQuestion(q)}
                       >
-                        <input 
-                          type="checkbox" 
-                          checked={item.done}
-                          onChange={() => handleToggleChecklist(selectedCustomerId, item.id)}
-                        />
-                        <span>{item.text}</span>
-                      </label>
+                        {q}
+                      </button>
                     ))}
                   </div>
-                </div>
-              </div>
 
-              {/* Sidebar Account Info */}
-              <div className="summary-side-col">
-                <div className="glass-panel info-card">
-                  <h3 className="card-title">Account Details</h3>
-                  <div className="info-grid">
-                    <div className="info-row">
-                      <span className="info-label">Account Owner</span>
-                      <span className="info-val">{selectedCustomer.accountOwner}</span>
-                    </div>
-                    <div className="info-row">
-                      <span className="info-label">Annual Value (ARR)</span>
-                      <span className="info-val" style={{ color: '#86efac' }}>${selectedCustomer.contractValue.toLocaleString()}</span>
-                    </div>
-                    <div className="info-row">
-                      <span className="info-label">Renewal Date</span>
-                      <span className="info-val">{selectedCustomer.renewalDate}</span>
-                    </div>
-                    <div className="info-row">
-                      <span className="info-label">Health Score</span>
-                      <span className={`info-val`} style={{ 
-                        color: selectedCustomer.healthScore >= 80 ? 'var(--status-good)' : 
-                               selectedCustomer.healthScore >= 60 ? 'var(--status-neutral)' : 'var(--status-risk)'
-                      }}>{selectedCustomer.healthScore} / 100</span>
-                    </div>
-                    <div className="info-row">
-                      <span className="info-label">Region</span>
-                      <span className="info-val">{selectedCustomer.region}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Sentiment Trend Indicator Panel */}
-                <div className="glass-panel info-card">
-                  <h3 className="card-title" style={{ color: '#06b6d4' }}>🗣️ Account Sentiment Trend</h3>
-                  <div style={{ marginTop: '10px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Trend Index:</span>
-                      <strong style={{ color: sentimentData.color }}>{sentimentData.label}</strong>
-                    </div>
-                    
-                    <div className="sentiment-meter">
-                      <span>😢</span>
-                      <div className="sentiment-bar-bg">
-                        <div 
-                          className="sentiment-bar-fill" 
-                          style={{ 
-                            width: `${sentimentData.score}%`, 
-                            backgroundColor: sentimentData.color 
-                          }}
-                        ></div>
-                      </div>
-                      <span>😊</span>
-                    </div>
-
-                    <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: '1.4' }}>
-                      {sentimentData.details}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'crm' && (
-            <div className="crm-details-panel">
-              <div className="glass-panel info-card">
-                <h3 className="card-title" style={{ borderBottom: '1px solid var(--card-border)', paddingBottom: '10px' }}>CRM Company Information</h3>
-                <div className="info-grid" style={{ marginTop: '16px' }}>
-                  <div className="info-row">
-                    <span className="info-label">Legal Entity</span>
-                    <span className="info-val">{selectedCustomer.name}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Domain</span>
-                    <span className="info-val">{selectedCustomer.domain}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Company Size</span>
-                    <span className="info-val">{selectedCustomer.crmData.companySize}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Industry</span>
-                    <span className="info-val">{selectedCustomer.industry}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="glass-panel info-card">
-                <h3 className="card-title" style={{ borderBottom: '1px solid var(--card-border)', paddingBottom: '10px' }}>Contract Details</h3>
-                <div className="info-grid" style={{ marginTop: '16px' }}>
-                  <div className="info-row">
-                    <span className="info-label">Deal Stage</span>
-                    <span className="info-val" style={{ color: 'var(--status-good)' }}>{selectedCustomer.crmData.dealStage}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Win Date</span>
-                    <span className="info-val">{selectedCustomer.crmData.winDate}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Primary Billing Contact</span>
-                    <span className="info-val" style={{ color: '#22d3ee' }}>{selectedCustomer.crmData.billingContact}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">CRM Sales Notes</span>
-                    <span className="info-val" style={{ fontWeight: '400', fontSize: '0.8rem', textAlign: 'right', maxWidth: '60%' }}>
-                      {selectedCustomer.crmData.notes}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {activeTab === 'timeline' && (
-            <div>
-              {/* Integration Activity Feed Filters */}
-              <div className="feed-filter-row">
-                <button 
-                  className={`feed-filter-btn ${feedFilter === 'all' ? 'active' : ''}`}
-                  onClick={() => setFeedFilter('all')}
-                >
-                  ⚡ All Channels ({rawTimelineItems.length})
-                </button>
-                <button 
-                  className={`feed-filter-btn ${feedFilter === 'email' ? 'active' : ''}`}
-                  onClick={() => setFeedFilter('email')}
-                >
-                  ✉️ Emails Only ({rawTimelineItems.filter(i => i.feedType === 'email').length})
-                </button>
-                <button 
-                  className={`feed-filter-btn ${feedFilter === 'slack' ? 'active' : ''}`}
-                  onClick={() => setFeedFilter('slack')}
-                >
-                  💬 Slack Only ({rawTimelineItems.filter(i => i.feedType === 'slack').length})
-                </button>
-                <button 
-                  className={`feed-filter-btn ${feedFilter === 'ticket' ? 'active' : ''}`}
-                  onClick={() => setFeedFilter('ticket')}
-                >
-                  🎫 Tickets Only ({rawTimelineItems.filter(i => i.feedType === 'ticket').length})
-                </button>
-              </div>
-
-              {filteredTimelineItems.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                  No interactions match selected channel filter
-                </div>
-              ) : (
-                <div className="timeline-feed">
-                  {filteredTimelineItems.map((item, idx) => {
-                    if (item.feedType === 'ticket') {
-                      return (
-                        <div key={`ticket-${item.id}-${idx}`} className="timeline-item">
-                          <div className="timeline-marker ticket"></div>
-                          <div className="glass-panel timeline-card">
-                            <div className="timeline-card-header">
-                              <span className="timeline-source ticket">🎫 Ticket {item.id} - {item.category}</span>
-                              <span className="timeline-date">{item.date}</span>
-                            </div>
-                            <div className="timeline-subject">
-                              {item.title} (Priority: <span style={{ color: item.priority === 'High' ? '#ef4444' : '#f59e0b' }}>{item.priority}</span>)
-                            </div>
-                            <div className="timeline-body">{item.description}</div>
-                            <div style={{ marginTop: '10px', fontSize: '0.75rem', display: 'flex', gap: '15px' }}>
-                              <span style={{ color: item.status === 'Open' ? '#fda4af' : '#6ee7b7' }}>● Status: {item.status}</span>
-                              <span style={{ color: 'var(--text-secondary)' }}>Sentiment: {item.sentiment}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    } else {
-                      return (
-                        <div key={`msg-${item.id}-${idx}`} className="timeline-item">
-                          <div className={`timeline-marker ${item.feedType}`}></div>
-                          <div className="glass-panel timeline-card">
-                            <div className="timeline-card-header">
-                              <span className={`timeline-source ${item.feedType}`}>
-                                {item.feedType === 'email' ? '✉️ Email' : '💬 Slack Thread'}
-                              </span>
-                              <span className="timeline-date">
-                                {new Date(item.timestamp).toLocaleDateString()} {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </div>
-                            {item.subject && <div className="timeline-subject">{item.subject}</div>}
-                            <div className="timeline-sender">From: <strong>{item.sender}</strong></div>
-                            <div className="timeline-body">"{item.body}"</div>
-                            <div style={{ marginTop: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                              Sentiment: {item.sentiment || 'Neutral'}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    }
-                  })}
+                  <form onSubmit={handleSendMessage} className="chat-input-area">
+                    <input
+                      type="text"
+                      placeholder="Ask a question about this account..."
+                      className="chat-input"
+                      value={chatInput}
+                      onChange={(e) => setChatInput(e.target.value)}
+                      disabled={isTyping}
+                    />
+                    <button 
+                      type="submit" 
+                      id="chat-submit-btn" 
+                      className="chat-send-btn"
+                      disabled={isTyping}
+                    >
+                      Send
+                    </button>
+                  </form>
                 </div>
               )}
             </div>
-          )}
-
-          {activeTab === 'usage' && (
-            <div className="usage-grid">
-              <div className="glass-panel usage-metric-card">
-                <h3 className="card-title">Weekly Active Users (Last 4 Weeks)</h3>
-                <div className="usage-bars">
-                  {selectedCustomer.productUsage.weeklyActiveUsers.map((users, idx) => {
-                    const max = Math.max(...selectedCustomer.productUsage.weeklyActiveUsers, 10);
-                    const heightPercent = (users / max) * 100;
-                    return (
-                      <div key={idx} className="usage-bar-wrapper">
-                        <span style={{ fontSize: '0.75rem', fontWeight: '600' }}>{users}</span>
-                        <div className="usage-bar" style={{ height: `${heightPercent}%` }}></div>
-                        <span className="usage-bar-label">Wk {4 - idx}</span>
-                      </div>
-                    );
-                  })}
-                </div>
+          </>
+        ) : (
+          // TASK 3 PREVIEW PANEL
+          <div style={{ padding: '0 32px 32px 32px' }}>
+            <div className="excel-download-banner">
+              <div>
+                <strong style={{ display: 'block', fontSize: '0.95rem', color: '#10b981' }}>🟢 Task 3 Spreadsheet Deliverable Active</strong>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                  A styled Microsoft Excel spreadsheet has been generated in your workspace. You can download it directly here.
+                </span>
               </div>
-
-              <div className="glass-panel usage-metric-card">
-                <h3 className="card-title">Contract License Utilization</h3>
-                <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px' }}>
-                      <span>Seats Assigned</span>
-                      <strong>{selectedCustomer.productUsage.licenseSeatsUsed} / {selectedCustomer.productUsage.licenseSeatsTotal}</strong>
-                    </div>
-                    {/* Visual Progress Bar */}
-                    <div style={{ width: '100%', height: '12px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', overflow: 'hidden' }}>
-                      <div style={{ 
-                        width: `${selectedCustomer.productUsage.licenseUtilization}%`, 
-                        height: '100%', 
-                        background: selectedCustomer.productUsage.licenseUtilization >= 90 ? 'var(--status-risk)' : 
-                                    selectedCustomer.productUsage.licenseUtilization >= 70 ? 'var(--status-good)' : 'var(--accent-primary)',
-                        borderRadius: '6px'
-                      }}></div>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                      <span>Utilization Rate</span>
-                      <span>{selectedCustomer.productUsage.licenseUtilization}%</span>
-                    </div>
-                  </div>
-
-                  <div style={{ borderTop: '1px solid var(--card-border)', paddingTop: '16px' }}>
-                    <h4 style={{ fontSize: '0.85rem', fontWeight: '600', marginBottom: '10px' }}>Active Modules</h4>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
-                        <span>{selectedCustomer.productUsage.modulesActive.corporateCards ? '🟢' : '⚫'}</span>
-                        <span>Corporate Cards</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
-                        <span>{selectedCustomer.productUsage.modulesActive.billPay ? '🟢' : '⚫'}</span>
-                        <span>Bill Pay</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
-                        <span>{selectedCustomer.productUsage.modulesActive.reimbursements ? '🟢' : '⚫'}</span>
-                        <span>Reimbursements</span>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.8rem' }}>
-                        <span>{selectedCustomer.productUsage.modulesActive.erpSync ? '🟢' : '⚫'}</span>
-                        <span>ERP Sync (NetSuite)</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <a 
+                href="https://github.com/shannu144/GrowthSync/raw/main/Task3_Lead_Pipeline_Dashboard.xlsx" 
+                className="excel-download-btn"
+              >
+                📥 Download Excel Dashboard
+              </a>
             </div>
-          )}
 
-          {activeTab === 'chat' && (
-            <div className="chat-container">
-              <div className="chat-history">
-                {(customerChats[selectedCustomerId] || []).map((msg, idx) => (
-                  <div key={idx} className={`chat-message ${msg.sender}`}>
-                    <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
+            {/* Excel Sub-Tabs */}
+            <div className="excel-tab-bar">
+              <button 
+                className={`excel-tab-btn ${excelTab === 'dash' ? 'active' : ''}`}
+                onClick={() => setExcelTab('dash')}
+              >
+                📊 Dashboard View
+              </button>
+              <button 
+                className={`excel-tab-btn ${excelTab === 'leads' ? 'active' : ''}`}
+                onClick={() => setExcelTab('leads')}
+              >
+                📋 Lead Data Tab (50 Rows)
+              </button>
+            </div>
+
+            {/* Excel Content View */}
+            <div className="excel-panel">
+              {excelTab === 'dash' ? (
+                <div>
+                  <div className="excel-title-banner">
+                    <h2>SALES LEAD PIPELINE & PERFORMANCE DASHBOARD</h2>
+                    <p>Volopay Growth & Marketing Operations Console — Reference Date: July 14, 2026</p>
                   </div>
-                ))}
-                
-                {isTyping && (
-                  <div className="chat-message assistant">
-                    <div className="typing-indicator">
-                      <div className="typing-dot"></div>
-                      <div className="typing-dot"></div>
-                      <div className="typing-dot"></div>
+
+                  {/* Spreadsheet KPI Cards */}
+                  <div className="stats-grid" style={{ padding: '0 0 20px 0' }}>
+                    <div className="stat-card glass-panel" style={{ background: '#0f172a' }}>
+                      <div className="stat-info">
+                        <span className="stat-value">{totalLeads}</span>
+                        <span className="stat-label">TOTAL LEADS</span>
+                      </div>
+                    </div>
+                    <div className="stat-card glass-panel" style={{ background: '#0f172a' }}>
+                      <div className="stat-info">
+                        <span className="stat-value">{closedWonLeads.length}</span>
+                        <span className="stat-label">CLOSED WON</span>
+                      </div>
+                    </div>
+                    <div className="stat-card glass-panel" style={{ background: '#0f172a' }}>
+                      <div className="stat-info">
+                        <span className="stat-value">{winRate}%</span>
+                        <span className="stat-label">WIN CONVERSION RATE</span>
+                      </div>
+                    </div>
+                    <div className="stat-card glass-panel" style={{ background: '#0f172a' }}>
+                      <div className="stat-info">
+                        <span className="stat-value">${activePipelineValue.toLocaleString()}</span>
+                        <span className="stat-label">ACTIVE PIPELINE VALUE</span>
+                      </div>
                     </div>
                   </div>
-                )}
-                <div ref={chatEndRef} />
-              </div>
 
-              {/* Quick Prompt Suggester */}
-              <div className="chat-quick-questions">
-                {getQuickQuestions().map((q, idx) => (
-                  <button 
-                    key={idx} 
-                    className="quick-question-pill"
-                    onClick={() => handleQuickQuestion(q)}
-                  >
-                    {q}
-                  </button>
-                ))}
-              </div>
+                  <div className="stats-grid" style={{ padding: '0 0 24px 0', gridTemplateColumns: '1fr 2fr' }}>
+                    <div className="stat-card glass-panel" style={{ background: '#0f172a', border: '1px solid rgba(239, 68, 68, 0.15)' }}>
+                      <div className="stat-info">
+                        <span className="stat-value" style={{ color: 'var(--status-risk)' }}>{staleHighPriorityLeadsCount}</span>
+                        <span className="stat-label">HIGH PRIORITY STALE (&gt;10d)</span>
+                      </div>
+                    </div>
+                    <div className="stat-card glass-panel" style={{ background: '#e2efda', border: '1px solid #c6efce' }}>
+                      <div className="stat-info">
+                        <span className="stat-value" style={{ color: '#1b4d3e' }}>${totalWonRevenue.toLocaleString()}</span>
+                        <span className="stat-label" style={{ color: '#2e7d32' }}>TOTAL WON REVENUE (ARR)</span>
+                      </div>
+                    </div>
+                  </div>
 
-              {/* Chat Input */}
-              <form onSubmit={handleSendMessage} className="chat-input-area">
-                <input
-                  type="text"
-                  placeholder="Ask a question about this account..."
-                  className="chat-input"
-                  value={chatInput}
-                  onChange={(e) => setChatInput(e.target.value)}
-                  disabled={isTyping}
-                />
-                <button 
-                  type="submit" 
-                  id="chat-submit-btn" 
-                  className="chat-send-btn"
-                  disabled={isTyping}
-                >
-                  Send
-                </button>
-              </form>
+                  {/* Tables Grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                    <div className="glass-panel" style={{ padding: '16px', background: '#0f172a' }}>
+                      <h4 style={{ fontSize: '0.85rem', marginBottom: '12px', borderBottom: '1px solid var(--card-border)', paddingBottom: '6px' }}>
+                        Acquisition Channel Performance
+                      </h4>
+                      <table className="excel-table" style={{ fontSize: '0.72rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Channel</th>
+                            <th>Leads Count</th>
+                            <th>Won Revenue</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            { ch: "LinkedIn", count: 12, rev: 153000 },
+                            { ch: "Google Search", count: 12, rev: 355000 },
+                            { ch: "Cold Outreach", count: 10, rev: 0 },
+                            { ch: "Referral", count: 6, rev: 359000 },
+                            { ch: "Partner", count: 6, rev: 287000 },
+                            { ch: "Webinars", count: 4, rev: 0 }
+                          ].map((row, idx) => (
+                            <tr key={idx}>
+                              <td>{row.ch}</td>
+                              <td style={{ textAlign: 'center' }}>{row.count}</td>
+                              <td style={{ textAlign: 'right' }}>${row.rev.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ fontWeight: 'bold', background: '#1e293b' }}>
+                            <td>Total</td>
+                            <td style={{ textAlign: 'center' }}>{totalLeads}</td>
+                            <td style={{ textAlign: 'right' }}>${totalWonRevenue.toLocaleString()}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="glass-panel" style={{ padding: '16px', background: '#0f172a' }}>
+                      <h4 style={{ fontSize: '0.85rem', marginBottom: '12px', borderBottom: '1px solid var(--card-border)', paddingBottom: '6px' }}>
+                        Pipeline Stage Distribution
+                      </h4>
+                      <table className="excel-table" style={{ fontSize: '0.72rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Lead Stage</th>
+                            <th>Deals Count</th>
+                            <th>Total Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[
+                            { st: "New", count: 7, val: 481000 },
+                            { st: "Contacted", count: 7, val: 232000 },
+                            { st: "Qualified", count: 4, val: 283000 },
+                            { st: "Proposal", count: 8, val: 597000 },
+                            { st: "Negotiation", count: 7, val: 546000 },
+                            { st: "Closed Won", count: 17, val: 1254000 },
+                            { st: "Closed Lost", count: 7, val: 446000 }
+                          ].map((row, idx) => (
+                            <tr key={idx}>
+                              <td>{row.st}</td>
+                              <td style={{ textAlign: 'center' }}>{row.count}</td>
+                              <td style={{ textAlign: 'right' }}>${row.val.toLocaleString()}</td>
+                            </tr>
+                          ))}
+                          <tr style={{ fontWeight: 'bold', background: '#1e293b' }}>
+                            <td>Total</td>
+                            <td style={{ textAlign: 'center' }}>{totalLeads}</td>
+                            <td style={{ textAlign: 'right' }}>$3,839,000</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Actions Table */}
+                  <div className="glass-panel" style={{ padding: '16px', marginTop: '20px', background: '#0f172a' }}>
+                    <h4 style={{ fontSize: '0.85rem', marginBottom: '12px', borderBottom: '1px solid var(--card-border)', paddingBottom: '6px', color: 'var(--status-risk)' }}>
+                      Urgent Action Items: Neglected & High-Priority Open Leads
+                    </h4>
+                    <table className="excel-table" style={{ fontSize: '0.72rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Company Name</th>
+                          <th>Lead Owner</th>
+                          <th>Deal Value</th>
+                          <th>Days Stale</th>
+                          <th>Priority</th>
+                          <th>Recommended Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { comp: "Jotunheim Cooling", owner: "Marcus Vance", val: 80000, stale: 90, pri: "High", act: "Re-attempt call with manager" },
+                          { comp: "Hyperion Systems", owner: "Marcus Vance", val: 67000, stale: 75, pri: "Medium", act: "Cold outreach call" },
+                          { comp: "Falcon Logistics", owner: "Chloe Patel", val: 72000, stale: 58, pri: "Low", act: "Introductory email" },
+                          { comp: "Infinity Retail", owner: "Chloe Patel", val: 32000, stale: 45, pri: "Medium", act: "Try alternative contact" },
+                          { comp: "Prime Movers", owner: "Chloe Patel", val: 90000, stale: 31, pri: "High", act: "Cold call follow-up" }
+                        ].map((row, idx) => (
+                          <tr key={idx}>
+                            <td>{row.comp}</td>
+                            <td style={{ textAlign: 'center' }}>{row.owner}</td>
+                            <td style={{ textAlign: 'right' }}>${row.val.toLocaleString()}</td>
+                            <td style={{ textAlign: 'center', color: row.stale >= 30 ? 'var(--status-risk)' : 'orange' }}>{row.stale} days</td>
+                            <td style={{ textAlign: 'center' }}>
+                              <span className={`health-badge ${row.pri === 'High' ? 'at-risk' : 'neutral'}`}>{row.pri}</span>
+                            </td>
+                            <td>{row.act}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Chart Row */}
+                  <div className="excel-chart-row">
+                    <div className="excel-chart-card">
+                      <h4 className="excel-chart-title">Won Revenue by Channel</h4>
+                      <div className="bar-chart-container">
+                        {[
+                          { label: "Referral", val: 359000, pct: 100 },
+                          { label: "Google Search", val: 355000, pct: 98 },
+                          { label: "Partner", val: 287000, pct: 80 },
+                          { label: "LinkedIn", val: 153000, pct: 42 },
+                          { label: "Webinars", val: 0, pct: 0 },
+                          { label: "Cold Outreach", val: 0, pct: 0 }
+                        ].map((row, idx) => (
+                          <div key={idx} className="bar-chart-row">
+                            <span className="bar-chart-label">{row.label}</span>
+                            <div className="bar-chart-track">
+                              <div className="bar-chart-fill" style={{ width: `${row.pct}%` }}></div>
+                            </div>
+                            <span className="bar-chart-val">${row.val.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="excel-chart-card">
+                      <h4 className="excel-chart-title">Leads Count by Pipeline Stage</h4>
+                      <div className="bar-chart-container">
+                        {[
+                          { label: "Closed Won", val: 17, pct: 100 },
+                          { label: "Proposal", val: 8, pct: 47 },
+                          { label: "Negotiation", val: 7, pct: 41 },
+                          { label: "Contacted", val: 7, pct: 41 },
+                          { label: "New", val: 7, pct: 41 },
+                          { label: "Closed Lost", val: 7, pct: 41 },
+                          { label: "Qualified", val: 4, pct: 23 }
+                        ].map((row, idx) => (
+                          <div key={idx} className="bar-chart-row">
+                            <span className="bar-chart-label">{row.label}</span>
+                            <div className="bar-chart-track">
+                              <div className="bar-chart-fill" style={{ width: `${row.pct}%`, background: 'linear-gradient(to right, #10b981, #059669)' }}></div>
+                            </div>
+                            <span className="bar-chart-val">{row.val} deals</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                // Raw grid preview
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      Displaying grid rows 1 to 50 (Full data set populated in workbook).
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: '600' }}>
+                      ⚡ Conditional Formatting Active
+                    </span>
+                  </div>
+
+                  <div className="excel-grid-container">
+                    <table className="excel-table">
+                      <thead>
+                        {/* Excel Column Letters */}
+                        <tr>
+                          <th className="excel-row-num"></th>
+                          <th className="excel-col-letter">A</th>
+                          <th className="excel-col-letter">B</th>
+                          <th className="excel-col-letter">C</th>
+                          <th className="excel-col-letter">D</th>
+                          <th className="excel-col-letter">E</th>
+                          <th className="excel-col-letter">F</th>
+                          <th className="excel-col-letter">G</th>
+                          <th className="excel-col-letter">H</th>
+                          <th className="excel-col-letter">I</th>
+                          <th className="excel-col-letter">J</th>
+                          <th className="excel-col-letter">K</th>
+                          <th className="excel-col-letter">L</th>
+                          <th className="excel-col-letter">M</th>
+                          <th className="excel-col-letter">N</th>
+                        </tr>
+                        {/* Headers */}
+                        <tr>
+                          <th className="excel-row-num">1</th>
+                          <th>Lead ID</th>
+                          <th>Date Received</th>
+                          <th>Company Name</th>
+                          <th>Contact Person</th>
+                          <th>Email</th>
+                          <th>Lead Owner</th>
+                          <th>Channel</th>
+                          <th>Lead Stage</th>
+                          <th>Priority</th>
+                          <th>Deal Value</th>
+                          <th>Last Contact</th>
+                          <th>Days Stale</th>
+                          <th>Next Action</th>
+                          <th>Target Close Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sheetLeads.map((row, idx) => {
+                          const isWon = row.stage === 'Closed Won';
+                          const isLost = row.stage === 'Closed Lost';
+                          const isHigh = row.priority === 'High';
+                          const isMed = row.priority === 'Medium';
+                          
+                          // Styling classes simulated for Excel Cells
+                          let stageStyle = {};
+                          if (isWon) stageStyle = { color: '#6ee7b7', backgroundColor: 'rgba(16, 185, 129, 0.15)' };
+                          if (isLost) stageStyle = { color: '#fda4af', backgroundColor: 'rgba(239, 68, 68, 0.15)' };
+                          if (row.stage === 'Negotiation') stageStyle = { color: '#fde047', backgroundColor: 'rgba(245, 158, 11, 0.15)' };
+
+                          let priorityStyle = {};
+                          if (isHigh) priorityStyle = { color: '#fda4af', backgroundColor: 'rgba(239, 68, 68, 0.15)', fontWeight: 'bold' };
+                          if (isMed) priorityStyle = { color: '#fde047', backgroundColor: 'rgba(245, 158, 11, 0.15)' };
+
+                          return (
+                            <tr key={idx}>
+                              <td className="excel-row-num">{idx + 2}</td>
+                              <td style={{ textAlign: 'center', fontFamily: 'monospace' }}>{row.id}</td>
+                              <td style={{ textAlign: 'center' }}>{row.date}</td>
+                              <td style={{ fontWeight: '600' }}>{row.company}</td>
+                              <td>{row.contact}</td>
+                              <td style={{ color: '#6366f1' }}>{row.email}</td>
+                              <td style={{ textAlign: 'center' }}>{row.owner}</td>
+                              <td style={{ textAlign: 'center' }}>{row.channel}</td>
+                              <td style={{ textAlign: 'center', ...stageStyle }}>{row.stage}</td>
+                              <td style={{ textAlign: 'center', ...priorityStyle }}>{row.priority}</td>
+                              <td style={{ textAlign: 'right', fontWeight: isWon ? '600' : 'normal' }}>
+                                ${row.value.toLocaleString()}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>{row.lastContact}</td>
+                              <td style={{ 
+                                textAlign: 'center', 
+                                color: row.staleDays !== '-' && row.staleDays >= 15 ? 'var(--status-risk)' : row.staleDays !== '-' && row.staleDays >= 8 ? 'orange' : 'inherit'
+                              }}>{row.staleDays}</td>
+                              <td>{row.nextAction}</td>
+                              <td style={{ textAlign: 'center' }}>{row.closeDate}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </main>
 
       {/* Settings Modal */}
